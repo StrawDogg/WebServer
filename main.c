@@ -172,14 +172,14 @@ int main(int argc, char *argv[])
     }
     /* 载入用户的数字证书， 此证书用来发送给客户端。 证书里包含有公钥 */
     // if (SSL_CTX_use_certificate_chain_file(ctx, argv[4]) <= 0) {
-    if (SSL_CTX_use_certificate_file(ctx, "certificate.pem", SSL_FILETYPE_PEM) <= 0) {
+    if (SSL_CTX_use_certificate_file(ctx, "../certification/certificate.pem", SSL_FILETYPE_PEM) <= 0) {
         printf("读取证书失败");
         ERR_print_errors_fp(stdout);
         exit(1);
     }
     
     /* 载入用户私钥 */
-    if (SSL_CTX_use_PrivateKey_file(ctx, "private.key", SSL_FILETYPE_PEM) <= 0) {
+    if (SSL_CTX_use_PrivateKey_file(ctx, "../certification/private.key", SSL_FILETYPE_PEM) <= 0) {
         printf("读取私钥失败");
         ERR_print_errors_fp(stdout);
         exit(1);
