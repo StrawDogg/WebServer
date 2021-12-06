@@ -8,6 +8,10 @@
 #include <stdlib.h>
 #include <cassert>
 #include <sys/epoll.h>
+#include <unordered_map>
+
+#include <openssl/ssl.h>
+#include <openssl/err.h>
 
 #include "./lock/locker.h"
 #include "./threadpool/threadpool.h"
@@ -37,6 +41,7 @@ static sort_timer_lst timer_lst;    //定时器容器类的对象
 
 static int epollfd = 0;
 
+unordered_map<int, SSL*> fd2ssl;
 //信号处理函数,该信号来时候，系统调用将被中断，并执行该函数，
 //该函数只是简单通知主循环，并把信号值传递给主循环
 //执行步骤还是在主循环里，具体执行目标信号对应的逻辑
@@ -146,6 +151,49 @@ int main(int argc, char *argv[])
     //初始化数据库读取表
     users->initmysql_result(connPool);
 
+/***************************SSL初始化*******************************************/
+/* SSL 库初始化 */
+    SSL_library_init();
+    /* 载入所有 SSL 算法 */
+    OpenSSL_add_all_algorithms();
+    /* 载入所有 SSL 错误消息 */
+    SSL_load_error_strings();
+    /* 以 SSL V2 和 V3 标准兼容方式产生一个 SSL_CTX ，即 SSL Content Text */
+    // SSL_CTX* ctx = SSL_CTX_new(SSLv23_server_method());
+    SSL_CTX* ctx = SSL_CTX_new(TLS_server_method());
+
+
+    SSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, NULL); 
+
+    /* 也可以用 SSLv2_server_method() 或 SSLv3_server_method() 单独表示 V2 或 V3标准 */
+    if (ctx == NULL) {
+        ERR_print_errors_fp(stdout);
+        exit(1);
+    }
+    /* 载入用户的数字证书， 此证书用来发送给客户端。 证书里包含有公钥 */
+    // if (SSL_CTX_use_certificate_chain_file(ctx, argv[4]) <= 0) {
+    if (SSL_CTX_use_certificate_file(ctx, "certificate.pem", SSL_FILETYPE_PEM) <= 0) {
+        printf("读取证书失败");
+        ERR_print_errors_fp(stdout);
+        exit(1);
+    }
+    
+    /* 载入用户私钥 */
+    if (SSL_CTX_use_PrivateKey_file(ctx, "private.key", SSL_FILETYPE_PEM) <= 0) {
+        printf("读取私钥失败");
+        ERR_print_errors_fp(stdout);
+        exit(1);
+    }
+    /* 检查用户私钥是否正确 */
+    if (!SSL_CTX_check_private_key(ctx)) {
+        ERR_print_errors_fp(stdout);
+        exit(1);
+    }
+
+    SSL_CTX_set_cipher_list (ctx, "RC4-MD5");
+    SSL_CTX_set_mode (ctx, SSL_MODE_AUTO_RETRY);
+
+/********************************************************************/
     int listenfd = socket(PF_INET, SOCK_STREAM, 0);
     assert(listenfd >= 0);
 
@@ -166,6 +214,8 @@ int main(int argc, char *argv[])
     assert(ret >= 0);
     ret = listen(listenfd, 5);
     assert(ret >= 0);
+/********************************************************************/
+
 
     //创建内核事件表
     epoll_event events[MAX_EVENT_NUMBER];
@@ -230,6 +280,24 @@ int main(int argc, char *argv[])
                     LOG_ERROR("%s", "Internal server busy");
                     continue;
                 }
+
+                 /* 基于 ctx 产生一个新的 SSL */
+                SSL* ssl = SSL_new(ctx);
+                /* 将连接用户的 socket 加入到 SSL */
+                SSL_set_fd(ssl, connfd);
+                /* 建立 SSL 连接 */
+                if (SSL_accept(ssl) == -1) 
+                {
+                    printf("ssl_accept错误\n");
+                    perror("accept");
+                    // close(connfd);
+                    // break;
+                }
+                else
+                {
+                    printf("连接成功\n");
+                }
+                fd2ssl[connfd] = ssl;
                 users[connfd].init(connfd, client_address); //初始化socket地址(协议族，ip，端口号)，把事件注册到epoll上，然后初始化一堆数据
 
                 //初始化client_data数据

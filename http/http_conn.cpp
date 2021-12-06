@@ -4,6 +4,8 @@
 #include <mysql/mysql.h>
 #include <fstream>
 
+extern unordered_map<int, SSL*> fd2ssl;
+
 //#define connfdET //边缘触发非阻塞
 #define connfdLT //水平触发阻塞
 
@@ -22,11 +24,13 @@ const char *error_500_title = "Internal Error";
 const char *error_500_form = "There was an unusual problem serving the request file.\n";
 
 //当浏览器出现连接重置时，可能是网站根目录出错或http响应格式出错或者访问的文件中内容完全为空
-const char *doc_root = "/root/vscode/TinyWebServer-raw_version/root";
+//  const char *doc_root = "/root/vscode/TinyWebServer-raw_version/root";
+const char *doc_root = "/root/myblog/public";
 
 //将表中的用户名和密码放入map
 map<string, string> users;
 locker m_lock;
+
 
 void http_conn::initmysql_result(connection_pool *connPool)
 {
@@ -215,7 +219,8 @@ bool http_conn::read_once()
 
 #ifdef connfdLT
 
-    bytes_read = recv(m_sockfd, m_read_buf + m_read_idx, READ_BUFFER_SIZE - m_read_idx, 0);
+    // bytes_read = recv(m_sockfd, m_read_buf + m_read_idx, READ_BUFFER_SIZE - m_read_idx, 0);
+    bytes_read = SSL_read(fd2ssl[m_sockfd], m_read_buf + m_read_idx, READ_BUFFER_SIZE - m_read_idx);
     m_read_idx += bytes_read;
 
     if (bytes_read <= 0)
@@ -292,8 +297,10 @@ http_conn::HTTP_CODE http_conn::parse_request_line(char *text)
     if (!m_url || m_url[0] != '/')
         return BAD_REQUEST;
     //当url为/时，给url后面补"judge.html",以显示判断界面
-    if (strlen(m_url) == 1)
-        strcat(m_url, "judge.html");
+    // if (strlen(m_url) == 1)
+    //     strcat(m_url, "index.html");
+    if (m_url[strlen(m_url) - 1] == '/')
+        strcat(m_url, "index.html");
     m_check_state = CHECK_STATE_HEADER;
     return NO_REQUEST;
 }
@@ -392,7 +399,7 @@ http_conn::HTTP_CODE http_conn::process_read()
         {
             ret = parse_content(text);
             if (ret == GET_REQUEST) // 如果获得了完整的HTTP请求
-                return do_request();    //文件地址赋值给了m_file_address
+                return do_request();    //文件地址赋值给了m_file_address，完成请求资源映射
             line_status = LINE_OPEN;
             break;
         }
@@ -407,12 +414,13 @@ http_conn::HTTP_CODE http_conn::do_request()
 {
     strcpy(m_real_file, doc_root);  //拼接文件的绝对地址
     int len = strlen(doc_root);
-    //printf("m_url:%s\n", m_url);
+    printf("m_url:%s\n", m_url);
     const char *p = strrchr(m_url, '/');    //找到最后一次出现 / 的地址给p
-
+/************************************
     //处理cgi
     if (cgi == 1 && (*(p + 1) == '2' || *(p + 1) == '3'))
     {
+
 
         //根据标志判断是登录检测还是注册检测
         char flag = m_url[1];
@@ -492,6 +500,14 @@ http_conn::HTTP_CODE http_conn::do_request()
 
         free(m_url_real);
     }
+    else if (*(p + 1) == 'i')
+    {
+        char *m_url_real = (char *)malloc(sizeof(char) * 200);
+        strcpy(m_url_real, "/index.html");
+        strncpy(m_real_file + len, m_url_real, strlen(m_url_real));
+
+        free(m_url_real);
+    }
     else if (*(p + 1) == '5')
     {
         char *m_url_real = (char *)malloc(sizeof(char) * 200);
@@ -517,11 +533,27 @@ http_conn::HTTP_CODE http_conn::do_request()
         free(m_url_real);
     }
     else
+    {
         strncpy(m_real_file + len, m_url, FILENAME_LEN - len - 1);
+    }
+****************************************************/
 
-    if (stat(m_real_file, &m_file_stat) < 0)
+    // if (*(p + 1) == 'i')
+    // {
+    //     char *m_url_real = (char *)malloc(sizeof(char) * 200);
+    //     strcpy(m_url_real, "/index.html");
+    //     strncpy(m_real_file + len, m_url_real, strlen(m_url_real));
+    //     free(m_url_real);
+    // }
+    // else
+    // {
+    //     strncpy(m_real_file + len, m_url, FILENAME_LEN - len - 1);
+    // }
+    strncpy(m_real_file + len, m_url, FILENAME_LEN - len - 1);
+    printf("m_real_file:%s\n", m_url);
+    if (stat(m_real_file, &m_file_stat) < 0)    //资源是否存在
         return NO_RESOURCE;
-    if (!(m_file_stat.st_mode & S_IROTH))
+    if (!(m_file_stat.st_mode & S_IROTH))   //判断文件权限是否可读
         return FORBIDDEN_REQUEST;
     if (S_ISDIR(m_file_stat.st_mode))
         return BAD_REQUEST;
@@ -552,8 +584,14 @@ bool http_conn::write()
 
     while (1)
     {
-        temp = writev(m_sockfd, m_iv, m_iv_count);  //write()将不连续的内存发出去要多次write,writev只需一次系统调用
-
+        // temp = writev(m_sockfd, m_iv, m_iv_count);  //write()将不连续的内存发出去要多次write,writev只需一次系统调用
+        printf("开始写了");
+        temp = 0;
+        for (int i = 0; i < m_iv_count; i++)
+        {
+            temp += SSL_write(fd2ssl[m_sockfd], m_iv[i].iov_base, m_iv[i].iov_len); 
+        }
+        printf("写完了\n");
         if (temp < 0)
         {
             if (errno == EAGAIN)
@@ -679,9 +717,9 @@ bool http_conn::process_write(HTTP_CODE ret)
         if (m_file_stat.st_size != 0)
         {
             add_headers(m_file_stat.st_size);
-            m_iv[0].iov_base = m_write_buf;
+            m_iv[0].iov_base = m_write_buf; //响应报文缓冲区
             m_iv[0].iov_len = m_write_idx;
-            m_iv[1].iov_base = m_file_address;
+            m_iv[1].iov_base = m_file_address;  //响应文件
             m_iv[1].iov_len = m_file_stat.st_size;
             m_iv_count = 2;
             bytes_to_send = m_write_idx + m_file_stat.st_size;
@@ -689,6 +727,7 @@ bool http_conn::process_write(HTTP_CODE ret)
         }
         else
         {
+            //请求资源大小为0，返回空白html
             const char *ok_string = "<html><body></body></html>";
             add_headers(strlen(ok_string));
             if (!add_content(ok_string))
@@ -698,6 +737,7 @@ bool http_conn::process_write(HTTP_CODE ret)
     default:
         return false;
     }
+    // 不是FILE_REQUEST的话只需要指向响应报文缓冲区
     m_iv[0].iov_base = m_write_buf;
     m_iv[0].iov_len = m_write_idx;
     m_iv_count = 1;
