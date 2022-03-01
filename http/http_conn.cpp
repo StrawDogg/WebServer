@@ -585,13 +585,24 @@ bool http_conn::write()
     while (1)
     {
         // temp = writev(m_sockfd, m_iv, m_iv_count);  //write()将不连续的内存发出去要多次write,writev只需一次系统调用
-        printf("开始写了");
-        temp = 0;
-        for (int i = 0; i < m_iv_count; i++)
+        // temp = 0;
+        // for (int i = 0; i < m_iv_count; i++)
+        // {
+        //     temp += SSL_write(fd2ssl[m_sockfd], m_iv[i].iov_base, m_iv[i].iov_len); 
+        // }
+        if (m_iv_count == 1)
         {
-            temp += SSL_write(fd2ssl[m_sockfd], m_iv[i].iov_base, m_iv[i].iov_len); 
+            temp = SSL_write(fd2ssl[m_sockfd], m_iv[0].iov_base, m_iv[0].iov_len); 
         }
-        printf("写完了\n");
+        else if (m_iv_count == 2)
+        {
+            char *pDes = new char[m_iv[0].iov_len + m_iv[1].iov_len];
+            memcpy(pDes, m_iv[0].iov_base, m_iv[0].iov_len);
+	        memcpy(pDes + m_iv[0].iov_len, m_iv[1].iov_base, m_iv[1].iov_len);
+            temp = SSL_write(fd2ssl[m_sockfd], pDes, m_iv[0].iov_len + m_iv[1].iov_len); 
+            delete pDes;
+        }
+
         if (temp < 0)
         {
             if (errno == EAGAIN)
@@ -599,6 +610,7 @@ bool http_conn::write()
                 modfd(m_epollfd, m_sockfd, EPOLLOUT);
                 return true;
             }
+            printf("写失败");
             unmap();
             return false;
         }

@@ -38,6 +38,7 @@ public:
 private:
     sem_t m_sem;
 };
+
 class locker
 {
 public:
@@ -68,6 +69,7 @@ public:
 private:
     pthread_mutex_t m_mutex;
 };
+
 class cond
 {
 public:
@@ -87,6 +89,8 @@ public:
     {
         int ret = 0;
         //pthread_mutex_lock(&m_mutex);
+        // pthread_cond_wait会阻塞等待，等着被cond_broadcast或cond_signal唤醒。
+        // 可能有多个线程都被唤醒，这些线程醒了再去竞争锁，抢到就锁上然后进行处理
         ret = pthread_cond_wait(&m_cond, m_mutex);
         //pthread_mutex_unlock(&m_mutex);
         return ret == 0;

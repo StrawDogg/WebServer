@@ -103,12 +103,13 @@ void show_error(int connfd, const char *info)
 int main(int argc, char *argv[])
 {
     printf("start!!\n");
+    
 #ifdef ASYNLOG
     Log::get_instance()->init("ServerLog", 2000, 800000, 8); //异步日志模型
 #endif
 
 #ifdef SYNLOG
-    Log::get_instance()->init("ServerLog", 2000, 800000, 0); //同步日志模型
+    Log::get_instance()->init("ServerLog", 2000, 800000, 0); //同步日志模型.
 #endif
     if (argc <= 1)
     {
@@ -152,7 +153,7 @@ int main(int argc, char *argv[])
     users->initmysql_result(connPool);
 
 /***************************SSL初始化*******************************************/
-/* SSL 库初始化 */
+    /* SSL 库初始化 */
     SSL_library_init();
     /* 载入所有 SSL 算法 */
     OpenSSL_add_all_algorithms();
@@ -247,7 +248,7 @@ int main(int argc, char *argv[])
 
     while (!stop_server)
     {
-        //把socket放到epoll的红黑树之外，还会把就绪事件放在一个双向链表中，
+        //把socket放到epoll的红黑树之外，还会把就绪事件放在一个双向链表中
         //每次调用epoll_wait，会把这个链表清空，但是后续LT和ET的处理方式不同
         //LT模式下，只要事件没处理完，调用epoll_wait时还会记录这个事件(原理是调用epoll_wait后，还会把这个socket放回到链表中)
         //ET模式仅在第一次返回(也就是说ET不会放回到被清空的链表中)
@@ -291,7 +292,7 @@ int main(int argc, char *argv[])
                     printf("ssl_accept错误\n");
                     perror("accept");
                     // close(connfd);
-                    // break;
+                    continue;
                 }
                 else
                 {
