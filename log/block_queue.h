@@ -152,7 +152,8 @@ public:
         m_mutex.lock();
         while (m_size <= 0)
         {
-            
+            // wait进入阻塞后会自动解锁，不然占着锁阻塞了别人不能动了
+            // 被唤醒后重新上锁！！
             if (!m_cond.wait(m_mutex.get()))
             {
                 m_mutex.unlock();
